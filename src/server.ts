@@ -4,6 +4,8 @@ import { config } from './config';
 import { createDb } from './db/connection';
 import { initDb } from './db/schema';
 import { createApp } from './app';
+import { SqliteCampaignRepository } from './campaigns/campaign.repository';
+import { CampaignService } from './campaigns/campaign.service';
 
 function main(): void {
   // Ensure the data directory exists (skipped for :memory:)
@@ -14,7 +16,8 @@ function main(): void {
   const db = createDb(config.dbPath);
   initDb(db);
 
-  const app = createApp({ db });
+  const campaignService = new CampaignService(new SqliteCampaignRepository(db));
+  const app = createApp({ db, campaignService });
 
   app.listen(config.port, () => {
     console.log(`Server listening on port ${config.port}`);
