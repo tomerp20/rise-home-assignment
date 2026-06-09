@@ -21,6 +21,7 @@ export class CampaignService {
       status: input.status,
       startDate: input.startDate,
       createdAt: new Date().toISOString(),
+      version: 1,
     };
     return this.repo.create(campaign);
   }
@@ -39,7 +40,8 @@ export class CampaignService {
     return { data, pagination: { limit: query.limit, offset: query.offset, total } };
   }
 
-  updateStatus(id: string, status: CampaignStatus): Campaign {
+  // State-machine check runs first; then the version/persistence guard.
+  updateStatus(id: string, status: CampaignStatus, ifMatchVersion?: number): Campaign {
     const campaign = this.repo.findById(id);
     if (!campaign) throw AppError.notFound(`Campaign ${id} not found`);
 
@@ -50,6 +52,12 @@ export class CampaignService {
       throw AppError.conflict(
         `Cannot transition campaign from '${campaign.status}' to '${status}'`,
       );
+    }
+
+    if (ifMatchVersion !== undefined) {
+      const updated = this.repo.updateStatusConditional(id, status, ifMatchVersion);
+      if (!updated) throw AppError.versionConflict();
+      return updated;
     }
 
     const updated = this.repo.updateStatus(id, status);

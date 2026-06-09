@@ -8,7 +8,8 @@ export function initDb(db: Database.Database): void {
       publisherId TEXT NOT NULL,
       status      TEXT NOT NULL CHECK(status IN ('active', 'paused', 'ended')),
       startDate   TEXT NOT NULL,
-      createdAt   TEXT NOT NULL
+      createdAt   TEXT NOT NULL,
+      version     INTEGER NOT NULL DEFAULT 1
     )
   `);
 }

@@ -8,7 +8,19 @@ import {
   ListCampaignsQuery,
 } from './campaign.schema';
 import { CampaignService } from './campaign.service';
-import { CampaignStatus } from './campaign.types';
+import { Campaign, CampaignStatus } from './campaign.types';
+import { AppError } from '../errors/app-error';
+
+function etag(campaign: Campaign): string {
+  return `"${campaign.version}"`;
+}
+
+// Parse a quoted ETag string ("1") into an integer. Returns undefined on malformed input.
+function parseIfMatch(value: string): number | undefined {
+  const m = value.match(/^"(\d+)"$/);
+  if (!m) return undefined;
+  return parseInt(m[1], 10);
+}
 
 export function createCampaignsRouter(service: CampaignService): Router {
   const router = Router();
@@ -19,7 +31,11 @@ export function createCampaignsRouter(service: CampaignService): Router {
     (req: Request, res: Response, next: NextFunction): void => {
       try {
         const campaign = service.create(req.body);
-        res.status(201).json(campaign);
+        res
+          .status(201)
+          .location(`/campaigns/${campaign.id}`)
+          .setHeader('ETag', etag(campaign))
+          .json(campaign);
       } catch (err) {
         next(err);
       }
@@ -45,7 +61,7 @@ export function createCampaignsRouter(service: CampaignService): Router {
     (req: Request, res: Response, next: NextFunction): void => {
       try {
         const campaign = service.getById(req.params.id);
-        res.status(200).json(campaign);
+        res.status(200).setHeader('ETag', etag(campaign)).json(campaign);
       } catch (err) {
         next(err);
       }
@@ -57,11 +73,22 @@ export function createCampaignsRouter(service: CampaignService): Router {
     validate({ params: idParamSchema, body: patchCampaignSchema }),
     (req: Request, res: Response, next: NextFunction): void => {
       try {
+        const ifMatchHeader = req.headers['if-match'];
+        let ifMatchVersion: number | undefined;
+
+        if (ifMatchHeader !== undefined) {
+          ifMatchVersion = parseIfMatch(ifMatchHeader);
+          if (ifMatchVersion === undefined) {
+            throw AppError.badRequest('If-Match must be a quoted integer e.g. "1"');
+          }
+        }
+
         const campaign = service.updateStatus(
           req.params.id,
           req.body.status as CampaignStatus,
+          ifMatchVersion,
         );
-        res.status(200).json(campaign);
+        res.status(200).setHeader('ETag', etag(campaign)).json(campaign);
       } catch (err) {
         next(err);
       }
