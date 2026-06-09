@@ -6,11 +6,6 @@ A REST API for creating and managing advertising campaigns with a status lifecyc
 
 Advertisers run **campaigns** on behalf of publishers. Each campaign has a name, an owning `publisherId`, a `startDate`, and a `status` that moves through a small lifecycle (`active` ⇄ `paused` → `ended`). The API exposes the five CRUD operations over campaigns plus a `/health` probe and a `/campaigns/:id/metrics` endpoint.
 
-Two parts are worth a closer look:
-
-- **Status state machine** — illegal transitions (e.g. resurrecting an `ended` campaign) are rejected with `409`, so status is never silently corrupted.
-- **Optimistic locking** — every read returns an `ETag`; clients send it back as `If-Match` on update, and a concurrent edit fails loudly instead of last-write-wins.
-
 ## Tech stack
 
 - **Runtime:** Node 20 + TypeScript (CommonJS)
@@ -70,20 +65,6 @@ curl -X PATCH http://localhost:3000/campaigns/<id> \
   -H 'Content-Type: application/json' -H 'If-Match: "1"' \
   -d '{"status":"paused"}'
 ```
-
-## Design decisions
-
-Each is **decision → why → tradeoff**.
-
-- **Status state machine** (`active`⇄`paused`→`ended`, `ended` terminal). The lifecycle lives in one transition table, checked before any write; illegal moves return `409`. _Tradeoff:_ adding a status means editing the table, but the rules can never drift across call sites.
-- **Optimistic locking via `ETag` / `If-Match`.** Concurrent status updates are likely; a version check (`UPDATE … WHERE id=? AND version=?`) makes a lost update fail loudly as `409` rather than silently overwrite. The DynamoDB equivalent is a `ConditionExpression`. _Tradeoff:_ clients must round-trip the `ETag`; `If-Match` is optional, so callers opt into safety.
-- **Offset/limit pagination.** Simple, stateless, and enough at take-home scale; `total` is returned for UI paging. _Tradeoff:_ deep offsets get expensive and can skip rows under concurrent inserts — a cursor is the at-scale answer.
-- **Storage behind a `CampaignRepository` interface.** The service depends on the interface, not SQLite; the same code runs on `SqliteCampaignRepository` locally and a DynamoDB implementation in Lambda. _Tradeoff:_ the interface is the lowest common denominator (PK = `id`, a GSI on `publisherId` to avoid a full table scan), so storage-specific tricks stay out of the service.
-- **Zod as the single source of truth.** One schema per payload yields both runtime validation and the inferred TypeScript types. _Tradeoff:_ validation is centralized in middleware, away from the handler it guards.
-- **Structured logging with pino**, silenced under `NODE_ENV=test` to keep test output clean.
-- **Hard delete.** No dependent records are in scope, so `DELETE` removes the row. _Tradeoff:_ no audit trail or restore — soft-delete is the obvious next step.
-
-**Architecture** is a thin layered stack: routes act as controllers (parse, validate, set headers) → `CampaignService` holds the domain rules → `CampaignRepository` owns persistence. Errors flow through a single `AppError` → error-handler middleware that renders `{ error: { code, message } }`.
 
 ## Project structure
 
