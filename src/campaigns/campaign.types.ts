@@ -7,4 +7,5 @@ export interface Campaign {
   status: CampaignStatus;
   startDate: string;
   createdAt: string;
+  version: number;
 }

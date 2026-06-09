@@ -24,4 +24,12 @@ export class AppError extends Error {
   static badRequest(message: string): AppError {
     return new AppError(400, 'BAD_REQUEST', message);
   }
+
+  static versionConflict(): AppError {
+    return new AppError(
+      409,
+      'VERSION_CONFLICT',
+      'Campaign was modified by another request; re-fetch and retry',
+    );
+  }
 }
