@@ -11,16 +11,10 @@ function makeRepo(seed?: Campaign): CampaignRepository {
       const all = [...store.values()].filter((c) => c.publisherId === publisherId);
       return { data: all.slice(offset, offset + limit), total: all.length };
     },
-    updateStatus: async (id, status) => {
+    updateStatus: async (id, status, expectedVersion) => {
       const c = store.get(id);
       if (!c) return undefined;
-      const updated: Campaign = { ...c, status, version: c.version + 1 };
-      store.set(id, updated);
-      return updated;
-    },
-    updateStatusConditional: async (id, status, version) => {
-      const c = store.get(id);
-      if (!c || c.version !== version) return undefined;
+      if (expectedVersion !== undefined && c.version !== expectedVersion) return undefined;
       const updated: Campaign = { ...c, status, version: c.version + 1 };
       store.set(id, updated);
       return updated;
@@ -92,15 +86,13 @@ describe('CampaignService.updateStatus — state machine', () => {
     await expect(new CampaignService(makeRepo(c)).updateStatus(c.id, 'paused')).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT' });
   });
 
-  it('is a no-op when status is unchanged — repo methods not called', async () => {
+  it('is a no-op when status is unchanged — repo not called', async () => {
     const c = seedCampaign({ status: 'active' });
     const repo = makeRepo(c);
     const updateSpy = jest.spyOn(repo, 'updateStatus');
-    const conditionalSpy = jest.spyOn(repo, 'updateStatusConditional');
     const result = await new CampaignService(repo).updateStatus(c.id, 'active');
     expect(result.status).toBe('active');
     expect(updateSpy).not.toHaveBeenCalled();
-    expect(conditionalSpy).not.toHaveBeenCalled();
   });
 
   it('throws 404 NOT_FOUND for an unknown campaign id', async () => {
@@ -114,9 +106,28 @@ describe('CampaignService.updateStatus — state machine', () => {
     expect(result.version).toBe(2);
   });
 
-  it('throws 409 VERSION_CONFLICT when If-Match version is stale', async () => {
+  it('throws 412 PRECONDITION_FAILED when If-Match version is stale', async () => {
     const c = seedCampaign({ status: 'active', version: 3 });
-    await expect(new CampaignService(makeRepo(c)).updateStatus(c.id, 'paused', 1)).rejects.toMatchObject({ statusCode: 409, code: 'VERSION_CONFLICT' });
+    await expect(new CampaignService(makeRepo(c)).updateStatus(c.id, 'paused', 1)).rejects.toMatchObject({ statusCode: 412, code: 'PRECONDITION_FAILED' });
+  });
+
+  it('evaluates a stale If-Match BEFORE the no-op shortcut — 412 even on same-status', async () => {
+    // Problem-B regression: stale If-Match on a no-op transition must be rejected
+    // (precondition first per RFC 7232), not silently 200.
+    const c = seedCampaign({ status: 'active', version: 3 });
+    const repo = makeRepo(c);
+    const updateSpy = jest.spyOn(repo, 'updateStatus');
+    await expect(new CampaignService(repo).updateStatus(c.id, 'active', 1)).rejects.toMatchObject({ statusCode: 412, code: 'PRECONDITION_FAILED' });
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it('matching If-Match on a no-op returns current campaign without writing', async () => {
+    const c = seedCampaign({ status: 'active', version: 2 });
+    const repo = makeRepo(c);
+    const updateSpy = jest.spyOn(repo, 'updateStatus');
+    const result = await new CampaignService(repo).updateStatus(c.id, 'active', 2);
+    expect(result.version).toBe(2);
+    expect(updateSpy).not.toHaveBeenCalled();
   });
 });
 

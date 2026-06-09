@@ -9,13 +9,16 @@ export interface CampaignRepository {
     limit: number;
     offset: number;
   }): Promise<{ data: Campaign[]; total: number }>;
-  updateStatus(id: string, status: CampaignStatus): Promise<Campaign | undefined>;
-  // Optimistic concurrency — DynamoDB equivalent: ConditionExpression on version attribute.
-  // Returns undefined when the WHERE id=? AND version=? clause matched no rows.
-  updateStatusConditional(
+  // Single status-update port. When `expectedVersion` is supplied the write is
+  // conditional (optimistic concurrency); otherwise it is an unconditional
+  // last-write-wins update. Returns undefined when no row matched — i.e. the id
+  // is gone, or (conditional path) the version no longer matches. The "conditional
+  // vs unconditional" branch is a storage detail and stays inside the repo.
+  // SQLite: WHERE id=? [AND version=?]. DynamoDB: ConditionExpression with/without version.
+  updateStatus(
     id: string,
     status: CampaignStatus,
-    version: number,
+    expectedVersion?: number,
   ): Promise<Campaign | undefined>;
   deleteById(id: string): Promise<boolean>;
 }
@@ -35,7 +38,10 @@ export class SqliteCampaignRepository implements CampaignRepository {
     );
     this.stmtFindById = db.prepare('SELECT * FROM campaigns WHERE id = ?');
     this.stmtList = db.prepare(
-      'SELECT * FROM campaigns WHERE publisherId = ? ORDER BY createdAt DESC LIMIT ? OFFSET ?',
+      // Deterministic order: createdAt is an ISO string, so same-millisecond rows
+      // tie — id DESC is the stable tie-breaker that keeps LIMIT/OFFSET pages
+      // free of skips/duplicates.
+      'SELECT * FROM campaigns WHERE publisherId = ? ORDER BY createdAt DESC, id DESC LIMIT ? OFFSET ?',
     );
     this.stmtCount = db.prepare(
       'SELECT COUNT(*) as total FROM campaigns WHERE publisherId = ?',
@@ -68,16 +74,17 @@ export class SqliteCampaignRepository implements CampaignRepository {
     return { data, total: row.total };
   }
 
-  async updateStatus(id: string, status: CampaignStatus): Promise<Campaign | undefined> {
-    return this.stmtUpdateStatus.get(status, id) as Campaign | undefined;
-  }
-
-  async updateStatusConditional(
+  async updateStatus(
     id: string,
     status: CampaignStatus,
-    version: number,
+    expectedVersion?: number,
   ): Promise<Campaign | undefined> {
-    return this.stmtUpdateStatusConditional.get(status, id, version) as Campaign | undefined;
+    if (expectedVersion !== undefined) {
+      return this.stmtUpdateStatusConditional.get(status, id, expectedVersion) as
+        | Campaign
+        | undefined;
+    }
+    return this.stmtUpdateStatus.get(status, id) as Campaign | undefined;
   }
 
   async deleteById(id: string): Promise<boolean> {

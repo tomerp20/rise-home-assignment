@@ -12,7 +12,6 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { Campaign, CampaignStatus } from './campaign.types';
 import { CampaignRepository } from './campaign.repository';
-import { AppError } from '../errors/app-error';
 
 const PUBLISHER_INDEX = 'publisherId-index';
 
@@ -56,6 +55,13 @@ export class DynamoDBCampaignRepository implements CampaignRepository {
       lastKey = page.LastEvaluatedKey as Record<string, unknown> | undefined;
     } while (lastKey && collected.length < needed);
 
+    // Mirror the SQLite ordering: createdAt DESC, id DESC. The GSI sort key is
+    // createdAt only, so same-timestamp items have undefined relative order —
+    // this tie-break keeps offset pages deterministic across both stores.
+    collected.sort(
+      (a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id),
+    );
+
     const data = collected.slice(offset, offset + limit);
 
     // Count query for total
@@ -77,43 +83,36 @@ export class DynamoDBCampaignRepository implements CampaignRepository {
     return { data, total };
   }
 
-  async updateStatus(id: string, status: CampaignStatus): Promise<Campaign | undefined> {
+  async updateStatus(
+    id: string,
+    status: CampaignStatus,
+    expectedVersion?: number,
+  ): Promise<Campaign | undefined> {
+    // Conditional write only when a version was supplied (optimistic path);
+    // otherwise an unconditional last-write-wins update guarded by item existence.
+    const conditional = expectedVersion !== undefined;
     try {
       const res = await this.client.send(new UpdateCommand({
         TableName: this.tableName,
         Key: { id },
         UpdateExpression: 'SET #status = :status, version = version + :inc',
-        ConditionExpression: 'attribute_exists(id)',
+        ConditionExpression: conditional
+          ? 'attribute_exists(id) AND version = :version'
+          : 'attribute_exists(id)',
         ExpressionAttributeNames: { '#status': 'status' },
-        ExpressionAttributeValues: { ':status': status, ':inc': 1 },
+        ExpressionAttributeValues: {
+          ':status': status,
+          ':inc': 1,
+          ...(conditional ? { ':version': expectedVersion } : {}),
+        },
         ReturnValues: 'ALL_NEW',
       }));
       return res.Attributes as Campaign | undefined;
     } catch (err) {
+      // Condition failed → no matching row (missing id, or version mismatch on the
+      // conditional path). The service already did a prior findById, so it
+      // disambiguates not-found from stale-version itself.
       if (err instanceof ConditionalCheckFailedException) return undefined;
-      throw err;
-    }
-  }
-
-  async updateStatusConditional(id: string, status: CampaignStatus, version: number): Promise<Campaign | undefined> {
-    try {
-      const res = await this.client.send(new UpdateCommand({
-        TableName: this.tableName,
-        Key: { id },
-        UpdateExpression: 'SET #status = :status, version = version + :inc',
-        ConditionExpression: 'attribute_exists(id) AND version = :version',
-        ExpressionAttributeNames: { '#status': 'status' },
-        ExpressionAttributeValues: { ':status': status, ':inc': 1, ':version': version },
-        ReturnValues: 'ALL_NEW',
-      }));
-      return res.Attributes as Campaign | undefined;
-    } catch (err) {
-      if (err instanceof ConditionalCheckFailedException) {
-        // Disambiguate: stale version (409) vs missing item (404/undefined)
-        const existing = await this.findById(id);
-        if (existing) throw AppError.versionConflict();
-        return undefined;
-      }
       throw err;
     }
   }
