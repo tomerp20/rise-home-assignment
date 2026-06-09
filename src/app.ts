@@ -3,11 +3,14 @@ import pinoHttp from 'pino-http';
 import pino from 'pino';
 import Database from 'better-sqlite3';
 import { createHealthRouter } from './health/health.routes';
+import { createCampaignsRouter } from './campaigns/campaign.routes';
+import { CampaignService } from './campaigns/campaign.service';
 import { errorHandler } from './middleware/error-handler';
 import { config } from './config';
 
 export interface AppDeps {
   db: Database.Database;
+  campaignService: CampaignService;
 }
 
 export function createApp(deps: AppDeps): Application {
@@ -28,10 +31,7 @@ export function createApp(deps: AppDeps): Application {
   // Health
   app.use('/health', createHealthRouter(deps.db));
 
-  // ── T2: mount campaigns router here ──────────────────────────────────────
-  // import { createCampaignsRouter } from './campaigns/campaigns.routes';
-  // app.use('/campaigns', createCampaignsRouter(deps));
-  // ─────────────────────────────────────────────────────────────────────────
+  app.use('/campaigns', createCampaignsRouter(deps.campaignService));
 
   // Global error handler — must be last
   app.use(errorHandler);
