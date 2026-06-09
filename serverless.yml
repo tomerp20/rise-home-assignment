@@ -1,0 +1,82 @@
+service: rise-campaign-api
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: il-central-1
+  timeout: 15
+  environment:
+    STORAGE: dynamodb
+    TABLE_NAME: !Ref CampaignsTable
+    LOG_LEVEL: info
+    NODE_ENV: production
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:Query
+          Resource:
+            - !GetAtt CampaignsTable.Arn
+            - !Sub '${CampaignsTable.Arn}/index/publisherId-index'
+
+functions:
+  api:
+    handler: src/lambda.handler
+    # NOTE: reservedConcurrency intentionally omitted. This account's total
+    # Lambda concurrency limit in il-central-1 is 10, and AWS requires at least
+    # 10 *unreserved* executions to remain — so any reservation is rejected.
+    # The account-wide cap of 10 already serves as the concurrency/cost guardrail.
+    events:
+      - httpApi:
+          path: /{proxy+}
+          method: ANY
+      - httpApi:
+          path: /
+          method: ANY
+
+plugins:
+  - serverless-esbuild
+
+custom:
+  esbuild:
+    bundle: true
+    minify: false
+    sourcemap: true
+    target: node20
+    platform: node
+    exclude:
+      - better-sqlite3
+
+resources:
+  Resources:
+    CampaignsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: rise-campaigns-${sls:stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: publisherId
+            AttributeType: S
+          - AttributeName: createdAt
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: publisherId-index
+            KeySchema:
+              - AttributeName: publisherId
+                KeyType: HASH
+              - AttributeName: createdAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL

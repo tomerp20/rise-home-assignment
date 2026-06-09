@@ -1,7 +1,12 @@
 node_modules/
 dist/
+.DS_Store
 *.sqlite
 *.db
 .env
 .env.*
 !.env.example
+.serverless/
+*.pkg
+# Generated esbuild worker bundle (produced by `npm run build:worker`)
+src/campaigns/ddb-exec.bundle.js

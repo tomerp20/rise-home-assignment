@@ -9,7 +9,7 @@ import { errorHandler } from './middleware/error-handler';
 import { config } from './config';
 
 export interface AppDeps {
-  db: Database.Database;
+  db?: Database.Database;
   campaignService: CampaignService;
 }
 

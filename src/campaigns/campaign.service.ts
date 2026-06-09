@@ -13,7 +13,7 @@ const ALLOWED_TRANSITIONS: Record<CampaignStatus, CampaignStatus[]> = {
 export class CampaignService {
   constructor(private readonly repo: CampaignRepository) {}
 
-  create(input: CreateCampaignInput): Campaign {
+  async create(input: CreateCampaignInput): Promise<Campaign> {
     const campaign: Campaign = {
       id: crypto.randomUUID(),
       name: input.name,
@@ -26,23 +26,22 @@ export class CampaignService {
     return this.repo.create(campaign);
   }
 
-  getById(id: string): Campaign {
-    const campaign = this.repo.findById(id);
+  async getById(id: string): Promise<Campaign> {
+    const campaign = await this.repo.findById(id);
     if (!campaign) throw AppError.notFound(`Campaign ${id} not found`);
     return campaign;
   }
 
-  list(query: ListCampaignsQuery): {
+  async list(query: ListCampaignsQuery): Promise<{
     data: Campaign[];
     pagination: { limit: number; offset: number; total: number };
-  } {
-    const { data, total } = this.repo.listByPublisher(query);
+  }> {
+    const { data, total } = await this.repo.listByPublisher(query);
     return { data, pagination: { limit: query.limit, offset: query.offset, total } };
   }
 
-  // State-machine check runs first; then the version/persistence guard.
-  updateStatus(id: string, status: CampaignStatus, ifMatchVersion?: number): Campaign {
-    const campaign = this.repo.findById(id);
+  async updateStatus(id: string, status: CampaignStatus, ifMatchVersion?: number): Promise<Campaign> {
+    const campaign = await this.repo.findById(id);
     if (!campaign) throw AppError.notFound(`Campaign ${id} not found`);
 
     if (campaign.status === status) return campaign;
@@ -55,17 +54,17 @@ export class CampaignService {
     }
 
     if (ifMatchVersion !== undefined) {
-      const updated = this.repo.updateStatusConditional(id, status, ifMatchVersion);
+      const updated = await this.repo.updateStatusConditional(id, status, ifMatchVersion);
       if (!updated) throw AppError.versionConflict();
       return updated;
     }
 
-    const updated = this.repo.updateStatus(id, status);
+    const updated = await this.repo.updateStatus(id, status);
     return updated!;
   }
 
-  getMetrics(id: string): { impressions: number; clicks: number; ctr: number } {
-    const campaign = this.repo.findById(id);
+  async getMetrics(id: string): Promise<{ impressions: number; clicks: number; ctr: number }> {
+    const campaign = await this.repo.findById(id);
     if (!campaign) throw AppError.notFound(`Campaign ${id} not found`);
 
     const impressions = Math.floor(Math.random() * (1_000_000 - 1_000 + 1)) + 1_000;
@@ -75,8 +74,8 @@ export class CampaignService {
     return { impressions, clicks, ctr };
   }
 
-  delete(id: string): void {
-    const deleted = this.repo.deleteById(id);
+  async delete(id: string): Promise<void> {
+    const deleted = await this.repo.deleteById(id);
     if (!deleted) throw AppError.notFound(`Campaign ${id} not found`);
   }
 }
