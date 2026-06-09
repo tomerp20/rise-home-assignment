@@ -82,25 +82,8 @@ src/
 tests/                   # supertest integration + helpers
 ```
 
-## Deployment
+## Live Instace
 
-Deployed with the **Serverless Framework** to **AWS Lambda + API Gateway (HTTP API) + DynamoDB** (region `il-central-1`).
+Deployed with the **Serverless Framework** to **AWS Lambda + API Gateway (HTTP API) + DynamoDB** 
 
 **Live URL:** https://51h5206mxe.execute-api.il-central-1.amazonaws.com
-
-```bash
-npx serverless@3 deploy --region il-central-1
-```
-
-The storage layer swaps via the `STORAGE` env var (`sqlite` | `dynamodb`) — same application code, a DynamoDB-backed `CampaignRepository` in the cloud. The table is keyed on `id` with a `publisherId-index` GSI for list queries. Cost guardrails: DynamoDB is **PAY_PER_REQUEST** (on-demand) and the function runs with **no VPC** (no NAT cost). Tear everything down with:
-
-```bash
-npx serverless@3 remove --region il-central-1
-```
-
-## Assumptions / What I'd do with more time
-
-- **Publishers are out of scope** — `publisherId` is an opaque string; there's no publisher resource or ownership/auth check.
-- **`PATCH` is status-only** by design (the one field with real lifecycle rules); editing `name`/`startDate` would be a separate concern.
-- **Metrics are synthetic** — `/metrics` returns plausible random numbers; a real implementation would read from an analytics store.
-- **Next steps for production:** soft delete + audit trail, authN/Z, and cursor-based listing to replace deep offsets.
