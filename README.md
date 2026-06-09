@@ -54,7 +54,7 @@ Jest covers the state-machine and locking logic as unit tests against the servic
 
 **Pagination:** `GET /campaigns` requires a `publisherId` query param and accepts `limit` (1–100, default 20) and `offset` (default 0); responses carry `{ data, pagination: { limit, offset, total } }`.
 
-**Concurrency (optional optimistic locking):** every campaign has a `version` number. `GET` and `PATCH` return it in the **`ETag` response header** (e.g. `ETag: "1"`). To update safely, copy that value into the **`If-Match` request header** on your `PATCH` — the change is applied **only if the campaign's current `version` still matches** the value you sent. If someone changed the campaign in the meantime (your value is stale), the request is rejected with `409 VERSION_CONFLICT`, and you should `GET` it again to read the new `ETag` before retrying. Omit `If-Match` to skip the check entirely (last write wins).
+**Concurrency (optional optimistic locking):** every campaign has a `version` number. `GET` and `PATCH` return it in the **`ETag` response header** (e.g. `ETag: "1"`). To update safely, copy that value into the **`If-Match` request header** on your `PATCH` — the change is applied **only if the campaign's current `version` still matches** the value you sent. If someone changed the campaign in the meantime (your value is stale), the request is rejected with `409 VERSION_CONFLICT`, and you should `GET` it again to read the new `ETag` before retrying.
 
 ```bash
 # Create, then pause it
