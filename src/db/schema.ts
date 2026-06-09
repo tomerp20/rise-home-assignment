@@ -12,10 +12,4 @@ export function initDb(db: Database.Database): void {
       version     INTEGER NOT NULL DEFAULT 1
     )
   `);
-  // Migrate existing databases that pre-date the version column
-  try {
-    db.exec(`ALTER TABLE campaigns ADD COLUMN version INTEGER NOT NULL DEFAULT 1`);
-  } catch {
-    // Column already exists — safe to ignore
-  }
 }
