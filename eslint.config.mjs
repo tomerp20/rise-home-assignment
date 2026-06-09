@@ -3,7 +3,8 @@ import tseslint from 'typescript-eslint';
 export default tseslint.config(
   ...tseslint.configs.recommended,
   {
-    ignores: ['dist/', 'node_modules/'],
+    // ddb-exec.bundle.js is a generated esbuild bundle (AWS SDK inlined).
+    ignores: ['dist/', 'node_modules/', 'src/campaigns/ddb-exec.bundle.js'],
   },
   {
     rules: {
