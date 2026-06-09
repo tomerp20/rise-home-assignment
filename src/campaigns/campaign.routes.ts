@@ -56,6 +56,19 @@ export function createCampaignsRouter(service: CampaignService): Router {
   );
 
   router.get(
+    '/:id/metrics',
+    validate({ params: idParamSchema }),
+    (req: Request, res: Response, next: NextFunction): void => {
+      try {
+        const metrics = service.getMetrics(req.params.id);
+        res.status(200).json(metrics);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  router.get(
     '/:id',
     validate({ params: idParamSchema }),
     (req: Request, res: Response, next: NextFunction): void => {
