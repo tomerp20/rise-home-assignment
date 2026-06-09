@@ -26,12 +26,6 @@ provider:
             - !GetAtt CampaignsTable.Arn
             - !Sub '${CampaignsTable.Arn}/index/publisherId-index'
 
-package:
-  patterns:
-    # Ship the self-contained DynamoDB worker bundle (AWS SDK inlined). The
-    # repository spawns it as a child process at runtime — not its own λ.
-    - 'src/campaigns/ddb-exec.bundle.js'
-
 functions:
   api:
     handler: src/lambda.handler

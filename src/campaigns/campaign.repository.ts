@@ -2,22 +2,22 @@ import Database from 'better-sqlite3';
 import { Campaign, CampaignStatus } from './campaign.types';
 
 export interface CampaignRepository {
-  create(campaign: Campaign): Campaign;
-  findById(id: string): Campaign | undefined;
+  create(campaign: Campaign): Promise<Campaign>;
+  findById(id: string): Promise<Campaign | undefined>;
   listByPublisher(opts: {
     publisherId: string;
     limit: number;
     offset: number;
-  }): { data: Campaign[]; total: number };
-  updateStatus(id: string, status: CampaignStatus): Campaign | undefined;
+  }): Promise<{ data: Campaign[]; total: number }>;
+  updateStatus(id: string, status: CampaignStatus): Promise<Campaign | undefined>;
   // Optimistic concurrency — DynamoDB equivalent: ConditionExpression on version attribute.
   // Returns undefined when the WHERE id=? AND version=? clause matched no rows.
   updateStatusConditional(
     id: string,
     status: CampaignStatus,
     version: number,
-  ): Campaign | undefined;
-  deleteById(id: string): boolean;
+  ): Promise<Campaign | undefined>;
+  deleteById(id: string): Promise<boolean>;
 }
 
 export class SqliteCampaignRepository implements CampaignRepository {
@@ -49,38 +49,38 @@ export class SqliteCampaignRepository implements CampaignRepository {
     this.stmtDelete = db.prepare('DELETE FROM campaigns WHERE id = ?');
   }
 
-  create(campaign: Campaign): Campaign {
+  async create(campaign: Campaign): Promise<Campaign> {
     this.stmtInsert.run(campaign);
     return campaign;
   }
 
-  findById(id: string): Campaign | undefined {
+  async findById(id: string): Promise<Campaign | undefined> {
     return this.stmtFindById.get(id) as Campaign | undefined;
   }
 
-  listByPublisher(opts: {
+  async listByPublisher(opts: {
     publisherId: string;
     limit: number;
     offset: number;
-  }): { data: Campaign[]; total: number } {
+  }): Promise<{ data: Campaign[]; total: number }> {
     const data = this.stmtList.all(opts.publisherId, opts.limit, opts.offset) as Campaign[];
     const row = this.stmtCount.get(opts.publisherId) as { total: number };
     return { data, total: row.total };
   }
 
-  updateStatus(id: string, status: CampaignStatus): Campaign | undefined {
+  async updateStatus(id: string, status: CampaignStatus): Promise<Campaign | undefined> {
     return this.stmtUpdateStatus.get(status, id) as Campaign | undefined;
   }
 
-  updateStatusConditional(
+  async updateStatusConditional(
     id: string,
     status: CampaignStatus,
     version: number,
-  ): Campaign | undefined {
+  ): Promise<Campaign | undefined> {
     return this.stmtUpdateStatusConditional.get(status, id, version) as Campaign | undefined;
   }
 
-  deleteById(id: string): boolean {
+  async deleteById(id: string): Promise<boolean> {
     const result = this.stmtDelete.run(id);
     return result.changes > 0;
   }

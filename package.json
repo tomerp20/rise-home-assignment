@@ -8,8 +8,7 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build:worker": "esbuild src/campaigns/ddb-exec.ts --bundle --platform=node --target=node20 --outfile=src/campaigns/ddb-exec.bundle.js",
-    "build": "npm run build:worker && tsc",
+    "build": "tsc",
     "start": "node dist/server.js",
     "test": "jest",
     "lint": "eslint src --ext .ts",
