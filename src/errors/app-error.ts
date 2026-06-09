@@ -25,11 +25,11 @@ export class AppError extends Error {
     return new AppError(400, 'BAD_REQUEST', message);
   }
 
-  static versionConflict(): AppError {
-    return new AppError(
-      409,
-      'VERSION_CONFLICT',
-      'Campaign was modified by another request; re-fetch and retry',
-    );
+  // Failed If-Match precondition. RFC 7232 §4.2 mandates 412 (not 409) when a
+  // conditional request's precondition evaluates to false.
+  static preconditionFailed(
+    message = 'Campaign was modified by another request; re-fetch and retry',
+  ): AppError {
+    return new AppError(412, 'PRECONDITION_FAILED', message);
   }
 }

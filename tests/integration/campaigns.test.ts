@@ -1,6 +1,11 @@
 import request from 'supertest';
 import { Application } from 'express';
 import { makeTestApp } from '../helpers/make-test-app';
+import { createDb } from '../../src/db/connection';
+import { initDb } from '../../src/db/schema';
+import { SqliteCampaignRepository } from '../../src/campaigns/campaign.repository';
+import { CampaignService } from '../../src/campaigns/campaign.service';
+import { createApp } from '../../src/app';
 
 let app: Application;
 
@@ -188,7 +193,7 @@ describe('PATCH /campaigns/:id', () => {
       expect(res.headers['etag']).toBe('"2"');
     });
 
-    it('409 VERSION_CONFLICT when If-Match is stale', async () => {
+    it('412 PRECONDITION_FAILED when If-Match is stale', async () => {
       const { body: created } = await request(app).post('/campaigns').send(BASE);
       // Advance version to 2
       await request(app)
@@ -202,8 +207,39 @@ describe('PATCH /campaigns/:id', () => {
         .set('If-Match', '"1"')
         .send({ status: 'active' });
 
-      expect(res.status).toBe(409);
-      expect(res.body.error.code).toBe('VERSION_CONFLICT');
+      expect(res.status).toBe(412);
+      expect(res.body.error.code).toBe('PRECONDITION_FAILED');
+    });
+
+    it('412 PRECONDITION_FAILED for a stale If-Match even on a no-op transition', async () => {
+      // Problem-B regression: precondition is evaluated before the same-status
+      // shortcut, so a stale If-Match on a no-op must NOT return 200.
+      const { body: created } = await request(app).post('/campaigns').send(BASE);
+      // Advance version to 2 (status now paused).
+      await request(app)
+        .patch(`/campaigns/${created.id}`)
+        .set('If-Match', '"1"')
+        .send({ status: 'paused' });
+
+      // Same-status PATCH (paused → paused) with the now-stale "1".
+      const res = await request(app)
+        .patch(`/campaigns/${created.id}`)
+        .set('If-Match', '"1"')
+        .send({ status: 'paused' });
+
+      expect(res.status).toBe(412);
+      expect(res.body.error.code).toBe('PRECONDITION_FAILED');
+    });
+
+    it('200 with no If-Match header — default last-write-wins flow is intact', async () => {
+      const { body: created } = await request(app).post('/campaigns').send(BASE);
+      const res = await request(app)
+        .patch(`/campaigns/${created.id}`)
+        .send({ status: 'paused' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.version).toBe(2);
+      expect(res.headers['etag']).toBe('"2"');
     });
   });
 });
@@ -252,5 +288,68 @@ describe('GET /campaigns/:id/metrics', () => {
     const res = await request(app).get('/campaigns/unknown-metrics-id/metrics');
     expect(res.status).toBe(404);
     expect(res.body.error.code).toBe('NOT_FOUND');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Error contract — catch-all 404, malformed JSON, generic 500
+// ---------------------------------------------------------------------------
+describe('error contract', () => {
+  it('unknown route → 404 JSON envelope (not Express HTML)', async () => {
+    const res = await request(app).get('/no-such-route');
+    expect(res.status).toBe(404);
+    expect(res.body.error).toMatchObject({ code: 'NOT_FOUND', message: expect.any(String) });
+    expect(res.headers['content-type']).toMatch(/application\/json/);
+  });
+
+  it('malformed JSON body → 400 VALIDATION_ERROR envelope (not 500)', async () => {
+    const res = await request(app)
+      .post('/campaigns')
+      .set('Content-Type', 'application/json')
+      .send('{ "name": "broken", '); // invalid JSON
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('unexpected error → generic 500 message, no internal detail leaked', async () => {
+    const db = createDb(':memory:');
+    initDb(db);
+    const repo = new SqliteCampaignRepository(db);
+    const secret = 'SQLITE_INTERNAL_TABLE_CORRUPTION_SECRET';
+    jest.spyOn(repo, 'findById').mockRejectedValue(new Error(secret));
+    const failingApp = createApp({ db, campaignService: new CampaignService(repo) });
+
+    const res = await request(failingApp).get('/campaigns/anything');
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toEqual({ code: 'INTERNAL_ERROR', message: 'Internal server error' });
+    expect(JSON.stringify(res.body)).not.toContain(secret);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pagination determinism — close-timestamp rows, no skips/dupes across pages
+// ---------------------------------------------------------------------------
+describe('pagination determinism', () => {
+  it('returns each row exactly once when paging through same/close-timestamp rows', async () => {
+    const TOTAL = 7;
+    const created: string[] = [];
+    for (let i = 0; i < TOTAL; i++) {
+      const { body } = await request(app).post('/campaigns').send(BASE);
+      created.push(body.id);
+    }
+
+    const limit = 2;
+    const seen: string[] = [];
+    for (let offset = 0; offset < TOTAL; offset += limit) {
+      const res = await request(app).get(`/campaigns?publisherId=pub-1&limit=${limit}&offset=${offset}`);
+      expect(res.status).toBe(200);
+      seen.push(...res.body.data.map((c: { id: string }) => c.id));
+    }
+
+    expect(seen).toHaveLength(TOTAL);
+    expect(new Set(seen).size).toBe(TOTAL); // no duplicates
+    expect(new Set(seen)).toEqual(new Set(created)); // no skips
   });
 });

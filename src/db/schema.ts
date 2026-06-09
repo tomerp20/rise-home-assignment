@@ -12,4 +12,11 @@ export function initDb(db: Database.Database): void {
       version     INTEGER NOT NULL DEFAULT 1
     )
   `);
+
+  // Index-back the list query + COUNT(*) (which filter/sort by publisherId, createdAt)
+  // so they don't full-table scan. Mirrors the DynamoDB GSI-on-publisherId design,
+  // keeping the two storage implementations consistent.
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_campaigns_publisher ON campaigns(publisherId, createdAt)',
+  );
 }

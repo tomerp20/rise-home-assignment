@@ -40,9 +40,28 @@ export class CampaignService {
     return { data, pagination: { limit: query.limit, offset: query.offset, total } };
   }
 
+  /**
+   * Update a campaign's status, optionally guarded by optimistic concurrency.
+   *
+   * Optimistic concurrency is OPT-IN: when the caller supplies `If-Match`
+   * (`ifMatchVersion`) we do a conditional update and reject stale writes with
+   * 412 Precondition Failed; without it we fall back to last-write-wins. This is a
+   * deliberate design choice — it keeps the default `PATCH /campaigns/:id { status }`
+   * simple (no header required) per the spec, while still letting careful clients
+   * opt into conflict detection.
+   *
+   * Per RFC 7232 the If-Match precondition is evaluated FIRST — before the no-op
+   * shortcut and the transition check — so a stale If-Match is rejected even when
+   * the requested status equals the current one.
+   */
   async updateStatus(id: string, status: CampaignStatus, ifMatchVersion?: number): Promise<Campaign> {
     const campaign = await this.repo.findById(id);
     if (!campaign) throw AppError.notFound(`Campaign ${id} not found`);
+
+    // Precondition first (RFC 7232) — before the no-op/transition checks below.
+    if (ifMatchVersion !== undefined && ifMatchVersion !== campaign.version) {
+      throw AppError.preconditionFailed();
+    }
 
     if (campaign.status === status) return campaign;
 
@@ -53,14 +72,16 @@ export class CampaignService {
       );
     }
 
-    if (ifMatchVersion !== undefined) {
-      const updated = await this.repo.updateStatusConditional(id, status, ifMatchVersion);
-      if (!updated) throw AppError.versionConflict();
-      return updated;
+    // Single call site: pass the version only when the caller opted in.
+    const updated = await this.repo.updateStatus(id, status, ifMatchVersion);
+    if (!updated) {
+      // No row matched between our findById and the write: version moved under us
+      // (opt-in path → 412) or the row was deleted concurrently (→ 404).
+      throw ifMatchVersion !== undefined
+        ? AppError.preconditionFailed()
+        : AppError.notFound(`Campaign ${id} not found`);
     }
-
-    const updated = await this.repo.updateStatus(id, status);
-    return updated!;
+    return updated;
   }
 
   async getMetrics(id: string): Promise<{ impressions: number; clicks: number; ctr: number }> {
