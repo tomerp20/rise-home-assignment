@@ -64,6 +64,17 @@ export class CampaignService {
     return updated!;
   }
 
+  getMetrics(id: string): { impressions: number; clicks: number; ctr: number } {
+    const campaign = this.repo.findById(id);
+    if (!campaign) throw AppError.notFound(`Campaign ${id} not found`);
+
+    const impressions = Math.floor(Math.random() * (1_000_000 - 1_000 + 1)) + 1_000;
+    const clicks = Math.floor(Math.random() * (impressions + 1));
+    const ctr = impressions === 0 ? 0 : Math.round((clicks / impressions) * 10_000) / 10_000;
+
+    return { impressions, clicks, ctr };
+  }
+
   delete(id: string): void {
     const deleted = this.repo.deleteById(id);
     if (!deleted) throw AppError.notFound(`Campaign ${id} not found`);
