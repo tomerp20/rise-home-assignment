@@ -53,6 +53,7 @@ Jest covers the state-machine and locking logic as unit tests against the servic
 | `GET`    | `/campaigns/:id/metrics`  | Impressions / clicks / CTR                       |
 
 **Pagination:** `GET /campaigns` requires a `publisherId` query param and accepts `limit` (1–100, default 20) and `offset` (default 0); responses carry `{ data, pagination: { limit, offset, total } }`.
+
 **Concurrency:** `GET` and `PATCH` return an `ETag` (the campaign `version`, e.g. `"1"`). Send it as `If-Match` on `PATCH`; a stale value yields `409 VERSION_CONFLICT`.
 
 ```bash
