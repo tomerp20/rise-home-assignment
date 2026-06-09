@@ -10,9 +10,9 @@ Advertisers run **campaigns** on behalf of publishers. Each campaign has a name,
 
 - **Runtime:** Node 20 + TypeScript (CommonJS)
 - **Web:** Express
-- **Storage:** SQLite via `better-sqlite3` (local) / DynamoDB (deployed)
+- **Storage:** async `CampaignRepository` interface with two implementations — `better-sqlite3` (local) and DynamoDB (deployed)
 - **Validation:** Zod
-- **Logging:** pino (`pino-http`)
+- **Logging:** structured JSON request logs — method, path, status, duration — via pino / `pino-http`
 - **Tests:** Jest + supertest
 - **Deploy:** Serverless Framework → AWS Lambda
 
@@ -38,7 +38,7 @@ curl http://localhost:3000/health
 npm test
 ```
 
-Jest covers the state-machine and locking logic as unit tests against the service, plus supertest integration tests that exercise the routes end-to-end over an in-memory SQLite database — including the error paths (validation `400`, not-found `404`, illegal-transition and version `409`).
+Jest covers the state-machine and locking logic as unit tests against the service, plus supertest integration tests that exercise the routes end-to-end over an in-memory SQLite database — including the error paths (validation `400`, not-found `404`, illegal-transition `409`, and stale-version `412`).
 
 ## API reference
 
@@ -52,9 +52,9 @@ Jest covers the state-machine and locking logic as unit tests against the servic
 | `DELETE` | `/campaigns/:id`          | Hard-delete                                      |
 | `GET`    | `/campaigns/:id/metrics`  | Impressions / clicks / CTR                       |
 
-**Pagination:** `GET /campaigns` requires a `publisherId` query param and accepts `limit` (1–100, default 20) and `offset` (default 0); responses carry `{ data, pagination: { limit, offset, total } }`.
+**Pagination:** `GET /campaigns` requires a `publisherId` query param and accepts `limit` (1–100, default 20) and `offset` (default 0); responses carry `{ data, pagination: { limit, offset, total } }`. Results are ordered newest-first by `createdAt` with `id` as a stable tie-breaker, so paging is deterministic.
 
-**Concurrency (optional optimistic locking):** every campaign has a `version` number. `GET` and `PATCH` return it in the **`ETag` response header** (e.g. `ETag: "1"`). To update safely, copy that value into the **`If-Match` request header** on your `PATCH` — the change is applied **only if the campaign's current `version` still matches** the value you sent. If someone changed the campaign in the meantime (your value is stale), the request is rejected with `409 VERSION_CONFLICT`, and you should `GET` it again to read the new `ETag` before retrying.
+**Concurrency (optional optimistic locking):** every campaign has a `version` number. `GET` and `PATCH` return it in the **`ETag` response header** (e.g. `ETag: "1"`). To update safely, copy that value into the **`If-Match` request header** on your `PATCH` — the change is applied **only if the campaign's current `version` still matches** the value you sent. If someone changed the campaign in the meantime (your value is stale), the request is rejected with `412 PRECONDITION_FAILED`, and you should `GET` it again to read the new `ETag` before retrying.
 
 ```bash
 # Create, then pause it
@@ -82,7 +82,7 @@ src/
 tests/                   # supertest integration + helpers
 ```
 
-## Live Instace
+## Live Instance
 
 Deployed with the **Serverless Framework** to **AWS Lambda + API Gateway (HTTP API) + DynamoDB** 
 
